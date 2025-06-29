@@ -1,4 +1,4 @@
-FROM public.ecr.aws/aws-cli/aws-cli:2.27.45
+FROM alpine:3.22.0
 WORKDIR /usr/local/bin
 COPY aws_signing_helper aws_signing_helper
 LABEL org.opencontainers.image.source https://github.com/SimonStiil/aws-signing-helper
