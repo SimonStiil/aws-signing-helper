@@ -1,5 +1,15 @@
-FROM alpine:3.22.0
+FROM alpine:3.22.0 AS base
+WORKDIR /app
+RUN apk add --no-cache bash libc6-compat 
+
+FROM base AS builder
+RUN apk add --no-cache make git go && \
+    git clone https://github.com/aws/rolesanywhere-credential-helper.git . && \
+    make release
+
+FROM base
 WORKDIR /usr/local/bin
-COPY aws_signing_helper aws_signing_helper
-LABEL org.opencontainers.image.source https://github.com/SimonStiil/aws-signing-helper
-USER 1000
+COPY --from=builder /app/build/bin/aws_signing_helper /usr/local/bin/aws_signing_helper
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
