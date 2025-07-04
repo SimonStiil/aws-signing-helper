@@ -99,7 +99,9 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           echo "Verifying pushed image..."
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version || github.sha }}
+          # Convert repository name to lowercase for verification
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${{ steps.meta.outputs.version || github.sha }}
           echo "Image verification completed"
 
       # Sign the resulting Docker image digest except on PRs.
