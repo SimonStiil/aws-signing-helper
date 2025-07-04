@@ -2,13 +2,10 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*.*.*'
+    branches: [main]
+    tags: ['v*.*.*']
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -32,19 +29,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set Docker image tags
+      - name: Set Docker image tags (always lowercase)
         id: docker_tags
         run: |
           IMAGE="ghcr.io/${{ github.repository }}"
+          IMAGE_LC=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
           TAGS=""
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            TAGS="${IMAGE}:latest"
+            TAGS="${IMAGE_LC}:latest"
           elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE}:${TAG}"
+            TAGS="${IMAGE_LC}:${TAG}"
           else
-            # For PRs, use the short SHA
-            TAGS="${IMAGE}:pr-${GITHUB_SHA::7}"
+            TAGS="${IMAGE_LC}:pr-${GITHUB_SHA::7}"
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
