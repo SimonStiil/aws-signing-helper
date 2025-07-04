@@ -115,23 +115,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Create and push multi-platform manifest
+     # Create and push multi-platform manifest
       - name: Create multi-platform manifest
         if: github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           # Convert IMAGE_NAME to lowercase
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           
           # Create manifest for each tag
-          for tag in ${{ steps.meta.outputs.tags }}; do
-            # Convert tag to lowercase
-            tag_lower=$(echo "$tag" | tr '[:upper:]' '[:lower:]')
-            echo "Creating manifest for $tag_lower"
-            
-            docker buildx imagetools create \
-              --tag $tag_lower \
-              ${tag_lower}-amd64 \
-              ${tag_lower}-arm64
+          echo "$TAGS" | while read -r tag; do
+            if [ -n "$tag" ]; then
+              # Convert tag to lowercase
+              tag_lower=$(echo "$tag" | tr '[:upper:]' '[:lower:]')
+              echo "Creating manifest for $tag_lower"
+              
+              docker buildx imagetools create \
+                --tag "$tag_lower" \
+                "$tag_lower-amd64" \
+                "$tag_lower-arm64"
+            fi
           done
 
       # Verify the pushed image exists and is accessible
