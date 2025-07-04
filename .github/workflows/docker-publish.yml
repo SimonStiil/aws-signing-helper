@@ -93,8 +93,6 @@ jobs:
           # Add provenance and SBOM attestations
           provenance: true
           sbom: true
-          # Ensure complete manifest push
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
 
       # Verify the pushed image exists and is accessible
       - name: Verify pushed image
