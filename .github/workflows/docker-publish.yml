@@ -6,7 +6,7 @@ name: Docker
 
 on:
   schedule:
-    - cron: '38 17 * * *'  # Fixed: was '38 17 * **'
+    - cron: '38 17 * * *'
   push:
     branches: [ "main" ]
     # Publish semver tags as releases.
@@ -46,9 +46,6 @@ jobs:
       # https://github.com/docker/setup-buildx-action
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-        with:
-          # Enable containerd image store for better multi-platform support
-          driver-opts: image=moby/buildkit:buildx-stable-1
 
       # Login against a Docker registry except on PR
       # https://github.com/docker/login-action
@@ -76,23 +73,66 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
-      - name: Build and push Docker image
-        id: build-and-push
+      # Build and push AMD64 image
+      - name: Build and push AMD64 image
+        id: build-amd64
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
-          # Explicitly specify platforms for multi-arch builds
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}-amd64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      # Build and push ARM64 image
+      - name: Build and push ARM64 image
+        id: build-arm64
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}-arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      # Build for PR (no push)
+      - name: Build image for PR
+        id: build-pr
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
           platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Add provenance and SBOM attestations
-          provenance: true
-          sbom: true
+
+      # Create and push multi-platform manifest
+      - name: Create multi-platform manifest
+        if: github.event_name != 'pull_request'
+        run: |
+          # Convert IMAGE_NAME to lowercase
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Create manifest for each tag
+          for tag in ${{ steps.meta.outputs.tags }}; do
+            # Convert tag to lowercase
+            tag_lower=$(echo "$tag" | tr '[:upper:]' '[:lower:]')
+            echo "Creating manifest for $tag_lower"
+            
+            docker buildx imagetools create \
+              --tag $tag_lower \
+              ${tag_lower}-amd64 \
+              ${tag_lower}-arm64
+          done
 
       # Verify the pushed image exists and is accessible
       - name: Verify pushed image
@@ -101,23 +141,25 @@ jobs:
           echo "Verifying pushed image..."
           # Convert repository name to lowercase for verification
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
-          docker buildx imagetools inspect ${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:${{ steps.meta.outputs.version || github.sha }}
+          
+          # Get the first tag for verification
+          FIRST_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1 | tr '[:upper:]' '[:lower:]')
+          
+          docker buildx imagetools inspect $FIRST_TAG
           echo "Image verification completed"
 
       # Sign the resulting Docker image digest except on PRs.
-      # This will only write to the public Rekor transparency log when the Docker
-      # repository is public to avoid leaking data.  If you would like to publish
-      # transparency data even for private images, pass --force to cosign below.
-      # https://github.com/sigstore/cosign
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}
         env:
-          # https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
           TAGS: ${{ steps.meta.outputs.tags }}
-          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
         run: |
           echo "Signing images..."
-          echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
+          # Convert tags to lowercase and sign each one
+          for tag in $TAGS; do
+            tag_lower=$(echo "$tag" | tr '[:upper:]' '[:lower:]')
+            # Get the digest for the manifest
+            DIGEST=$(docker buildx imagetools inspect $tag_lower --format '{{ .Manifest.Digest }}')
+            cosign sign --yes ${tag_lower}@${DIGEST}
+          done
           echo "Image signing completed"
