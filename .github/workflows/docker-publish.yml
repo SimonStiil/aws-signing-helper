@@ -14,6 +14,13 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: write
+      # This is used to complete the identity challenge
+      # with sigstore/fulcio when running outside of PRs.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,21 +36,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set Docker image tags (always lowercase)
-        id: docker_tags
-        run: |
-          IMAGE="ghcr.io/${{ github.repository }}"
-          IMAGE_LC=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
-          TAGS=""
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            TAGS="${IMAGE_LC}:latest"
-          elif [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-            TAGS="${IMAGE_LC}:${TAG}"
-          else
-            TAGS="${IMAGE_LC}:pr-${GITHUB_SHA::7}"
-          fi
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image (AMD64)
         uses: docker/build-push-action@v6
@@ -51,4 +56,5 @@ jobs:
           context: .
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.docker_tags.outputs.tags }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
